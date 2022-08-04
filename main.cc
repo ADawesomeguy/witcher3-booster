@@ -1,11 +1,12 @@
 #include <windows.h>
-#include <fstream>
 
+#include <fstream>
+#include <iostream>
+
+#include "detours.h"
 #include "vtable/vmthooks.h"
 
 #include "witcher3-classes.h"
-
-#include <iostream>
 
 HANDLE thread = nullptr;
 utils::VtableHook* game_hook = nullptr;
@@ -305,33 +306,29 @@ static bool BaseEngine_InitializeScripts(void* rcx, void* rdx) {
 }
 
 DWORD WINAPI InitializeHook(void* arguments) {
-  hook::set_base();
-  HookFunction::RunAll();
+    hook::set_base();
+    HookFunction::RunAll();
 
-  global_game = hook::pattern("48 8B 05 ? ? ? ? 48 8D 4C 24 ? C6 44 24")
-                    .count(1)
-                    .get(0)
-                    .extract<CGame**>(3);
-  global_debug_console =
-      hook::pattern("48 89 05 ? ? ? ? EB 07 48 89 35 ? ? ? ? 48 8B 97")
-          .count(1)
-          .get(0)
-          .extract<void**>(3);
+    global_game = hook::pattern("48 8B 05 ? ? ? 02 C6 44 24 30 01 89 4C 24 28")
+        .count(1)
+        .get(0)
+        .extract<CGame**>(3);
+    global_debug_console =
+        hook::pattern("48 89 05 ? ? ? ? EB 07 48 89 35 ? ? ? ? 48 8B")
+        .count(1)
+        .get(0)
+        .extract<void**>(3);
 
-  while (*global_game == nullptr || *global_debug_console == nullptr) {
-    Sleep(500);
-  }
+    while (*global_game == nullptr || *global_debug_console == nullptr) {
+        Sleep(500);
+    }
 
-  OnViewportInputDebugConsole =
-      hook::pattern("48 83 EC 28 48 8B 05 ? ? ? ? 0F B6 90")
-          .count(1)
-          .get(0)
-          .get<OnViewportInputType>(0);
-  rtti_system = *hook::pattern("48 8B 0D ? ? ? ? 48 8B 5C 24 ? 48 83 C4 30")
-                     .count(1)
-                     .get(0)
-                     .extract<CRTTISystem**>(3);
-  // native_globals_function_map = hook::pattern("4C 8D 0D ? ? ? ? 49 89 14
+    OnViewportInputDebugConsole =
+        hook::pattern("48 83 EC 28 48 8B 05 ? ? ? ? 0F B6 90")
+        .count(1)
+        .get(0)
+        .get<OnViewportInputType>(0);
+    // native_globals_function_map = hook::pattern("4C 8D 0D ? ? ? ? 49 89 14
   // C1").count(1).get(0).extract<void*>(3);
   // FileManager* file_manager  = hook::pattern("48 8B 0D ? ? ? ? 48 8D 55 A0 41
   // B8").count(1).get(0).extract<FileManager*>(3);
@@ -375,6 +372,7 @@ void FinalizeHook() {
 
 int WINAPI DllMain(HINSTANCE instance, DWORD reason, PVOID reserved) {
   if (reason == DLL_PROCESS_ATTACH) {
+    DetourRestoreAfterWith();
     thread = CreateThread(nullptr, 0, InitializeHook, 0, 0, nullptr);
   } else if (reason == DLL_PROCESS_DETACH) {
     FinalizeHook();
@@ -383,3 +381,5 @@ int WINAPI DllMain(HINSTANCE instance, DWORD reason, PVOID reserved) {
   }
   return 1;
 }
+
+extern "C" __declspec(dllexport) void Witcher3DebugConsoleEnabler_DummyExport() { }
